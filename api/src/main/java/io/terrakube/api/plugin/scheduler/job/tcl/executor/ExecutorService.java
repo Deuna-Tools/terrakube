@@ -95,6 +95,7 @@ public class ExecutorService {
         executorContext.setOrganizationId(job.getOrganization().getId().toString());
         executorContext.setWorkspaceId(job.getWorkspace().getId().toString());
         executorContext.setJobId(String.valueOf(job.getId()));
+        executorContext.setExecutionAttempt(job.getPlanAttempt());
         executorContext.setStepId(stepId);
 
         if (job.getWorkspace().getBranch().equals("remote-content")) {

@@ -20,6 +20,8 @@ public class ExecutorContext {
     private String organizationId;
     private String workspaceId;
     private String jobId;
+    @Builder.Default
+    private int executionAttempt = 1;
     private String stepId;
     private String terraformVersion;
     private String source;

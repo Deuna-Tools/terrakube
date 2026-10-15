@@ -45,6 +45,7 @@ import {
   normalizeUITemplates,
 } from "./structuredPlan";
 import { relativeTime } from "@/modules/utils/dates";
+import { PlanRetry } from "./PlanRetry";
 
 type Props = {
   jobId: string;
@@ -135,10 +136,23 @@ export const DetailsJob = ({ jobId }: Props) => {
   const contextRequestRef = useRef(0);
   const pollRequestRef = useRef(0);
 
+  const currentAttempt = (job?.data?.attributes as any)?.planAttempt ?? 1;
+  useEffect(() => {
+    abortContextRequests();
+    contextRequestRef.current += 1;
+    setPlanStructuredOutput({});
+    setApplyStructuredOutput({});
+    setTerraformOutputs({});
+    setJobDiagnostics({});
+    setUITemplates({});
+    setContextEverPersisted(false);
+    setNoChangePlanStepId(undefined);
+    setContextAvailability("pending");
+  }, [jobId, currentAttempt, abortContextRequests]);
+
   const isAbortError = (error: unknown) => {
     return error instanceof Error && (error.name === "AbortError" || error.name === "CanceledError");
   };
-
 
   const parseIncompleteVariableGuard = (jobOutput?: string): IncompleteVariableGuard | null => {
     if (jobOutput == null) {
@@ -236,8 +250,7 @@ export const DetailsJob = ({ jobId }: Props) => {
     const anyPlanHasRows = planEntries.some((rows) => Array.isArray(rows) && rows.length > 0);
     const markedNoChange =
       noChangePlanStepId != null &&
-      !(Array.isArray(planStructuredOutput[noChangePlanStepId]) &&
-        planStructuredOutput[noChangePlanStepId].length > 0);
+      !(Array.isArray(planStructuredOutput[noChangePlanStepId]) && planStructuredOutput[noChangePlanStepId].length > 0);
     const inferredNoChange =
       contextEverPersisted &&
       planEntries.length > 0 &&
@@ -421,7 +434,10 @@ export const DetailsJob = ({ jobId }: Props) => {
       setJob(response.data);
 
       const included = response.data.included ?? [];
-      const stepEntries = included.filter((item: any) => item.type === "step");
+      const attempt = (response.data.data.attributes as any).planAttempt ?? 1;
+      const stepEntries = included.filter(
+        (item: any) => item.type === "step" && (item.attributes.executionAttempt ?? 1) === attempt
+      );
       const workspaceEntry: Workspace | undefined = included.find(
         (item: IncludedItem<Workspace>) => item.type === "workspace"
       );
@@ -584,8 +600,7 @@ export const DetailsJob = ({ jobId }: Props) => {
     if (status === previousJobStatusRef.current) {
       return;
     }
-    const becameTerminal =
-      !isTerminalStatus(previousJobStatusRef.current) && isTerminalStatus(status);
+    const becameTerminal = !isTerminalStatus(previousJobStatusRef.current) && isTerminalStatus(status);
     previousJobStatusRef.current = status;
 
     if (!jobId) {
@@ -745,6 +760,12 @@ export const DetailsJob = ({ jobId }: Props) => {
                 ),
               },
             ]}
+          />
+          <PlanRetry
+            jobId={jobId}
+            organizationId={organizationId ?? ""}
+            status={job.data.attributes.status}
+            onUpdate={loadJob}
           />
           {steps.length > 0 ? (
             steps.map((item) => {

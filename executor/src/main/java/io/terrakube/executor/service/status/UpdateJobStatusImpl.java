@@ -48,6 +48,7 @@ public class UpdateJobStatusImpl implements UpdateJobStatus {
             } else {
                 job.getAttributes().setStatus("running");
                 job.getAttributes().setCommitId(commitId);
+                fence(job, terraformJob.getExecutionAttempt());
 
                 JobRequest jobRequest = new JobRequest();
                 jobRequest.setData(job);
@@ -70,7 +71,7 @@ public class UpdateJobStatusImpl implements UpdateJobStatus {
             if (rejected || currentJobStatus.equals("cancelled"))
                 log.warn("Job {} was {} when running executor, skipping job status update", terraformJob.getJobId(), currentJobStatus);
             else
-                updateJobStatus(successful, isPlan, exitCode, terraformJob.getOrganizationId(), terraformJob.getJobId(), terraformJob.getStepId(), jobOutput, jobErrorOutput, jobPlan, commitId);
+                updateJobStatus(successful, isPlan, exitCode, terraformJob.getOrganizationId(), terraformJob.getJobId(), terraformJob.getStepId(), jobOutput, jobErrorOutput, jobPlan, commitId, terraformJob.getExecutionAttempt());
         }
     }
 
@@ -79,7 +80,7 @@ public class UpdateJobStatusImpl implements UpdateJobStatus {
                 .getData().getAttributes().getStatus();
     }
 
-    private void updateJobStatus(boolean successful, boolean isPlan, int exitCode, String organizationId, String jobId, String stepId, String jobOutput, String jobErrorOutput, String jobPlan, String commitId) {
+    private void updateJobStatus(boolean successful, boolean isPlan, int exitCode, String organizationId, String jobId, String stepId, String jobOutput, String jobErrorOutput, String jobPlan, String commitId, int attempt) {
         Job job = terrakubeClient.getJobById(organizationId, jobId).getData();
         String status = "";
         boolean planChanges = true;
@@ -122,11 +123,26 @@ public class UpdateJobStatusImpl implements UpdateJobStatus {
         job.getAttributes().setOutput(existingOutput + " Step " + stepId + " completed\n");
         job.getAttributes().setTerraformPlan(jobPlan);
         job.getAttributes().setCommitId(commitId);
+        fence(job, attempt);
 
         JobRequest jobRequest = new JobRequest();
         jobRequest.setData(job);
 
         terrakubeClient.updateJob(jobRequest, job.getRelationships().getOrganization().getData().getId(), job.getId());
+    }
+
+    @lombok.Getter
+    @lombok.Setter
+    public static class AttemptAttributes extends io.terrakube.client.model.organization.job.JobAttributes {
+        private int executionAttempt;
+    }
+
+    private void fence(Job job, int attempt) {
+        if (attempt <= 1) return; // Keep first-attempt callbacks compatible during API rollout.
+        AttemptAttributes attributes = new AttemptAttributes();
+        org.springframework.beans.BeanUtils.copyProperties(job.getAttributes(), attributes);
+        attributes.setExecutionAttempt(attempt);
+        job.setAttributes(attributes);
     }
 
     private void updateStepStatus(boolean status, String organizationId, String jobId, String stepId, String jobOutput, String jobErrorOutput) {

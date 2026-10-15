@@ -1,7 +1,7 @@
 import { Button, ConfigProvider, Typography, theme } from "antd";
 import { useState } from "react";
 import { mgr } from "../../config/authConfig";
-import { getUiRedirectUri } from "../../config/basePath";
+import { getUiRedirectUri, withBasePath } from "../../config/basePath";
 import {
   ColorSchemeOption,
   ThemeMode,
@@ -43,7 +43,7 @@ const LoginContent = () => {
   return (
     <div className="login-container" style={{ backgroundColor: token.colorBgLayout }}>
       <div className="login-card" style={{ backgroundColor: token.colorBgContainer }}>
-        <img src={logo} alt="Terrakube" className="login-logo" />
+        <img src={withBasePath(logo)} alt="Terrakube" className="login-logo" />
         <Title level={3}>Sign in to Terrakube</Title>
         <Text type="secondary">Click below to continue with your identity provider.</Text>
         <Button type="primary" block size="large" loading={isSigningIn} onClick={handleSignIn}>

@@ -19,6 +19,7 @@ public class TerraformJob {
     private String organizationId;
     private String workspaceId;
     private String jobId;
+    private int executionAttempt = 1;
     private String stepId;
     private String terraformVersion;
     private String source;

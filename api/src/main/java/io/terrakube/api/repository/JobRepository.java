@@ -16,6 +16,9 @@ import java.util.Optional;
 
 public interface JobRepository extends JpaRepository<Job, Integer> {
 
+    List<Job> findByRetryRequestedTrue();
+    List<Job> findByWorkspaceOrderByIdAsc(Workspace workspace);
+
     // Terminal statuses that don't block a later job - shared by the FIFO dispatch-ordering
     // queries below, mirrors the list ScheduleJob.runExecution already uses in Java.
     String TERMINAL_JOB_STATUSES = "'failed','completed','rejected','cancelled','noChanges'";

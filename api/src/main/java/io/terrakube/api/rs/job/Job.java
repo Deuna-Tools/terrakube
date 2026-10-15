@@ -35,6 +35,7 @@ import lombok.Setter;
 
 @LifeCycleHookBinding(operation = LifeCycleHookBinding.Operation.CREATE, phase = LifeCycleHookBinding.TransactionPhase.POSTCOMMIT, hook = JobManageHook.class)
 @LifeCycleHookBinding(operation = LifeCycleHookBinding.Operation.UPDATE, phase = LifeCycleHookBinding.TransactionPhase.POSTCOMMIT, hook = JobManageHook.class)
+@LifeCycleHookBinding(operation = LifeCycleHookBinding.Operation.UPDATE, phase = LifeCycleHookBinding.TransactionPhase.PRECOMMIT, hook = io.terrakube.api.plugin.retry.AttemptFenceHook.class)
 @ReadPermission(expression = "team view job OR team project limited view job OR team limited view job")
 @CreatePermission(expression = "team manage job OR team limited manage job OR team plan job OR team limited plan job OR team project limited plan job")
 @UpdatePermission(expression = "team manage job OR team limited manage job OR team project limited manage job OR user is a super service")
@@ -44,6 +45,67 @@ import lombok.Setter;
 @Entity(name = "job")
 @SQLRestriction(value = "deleted = false")
 public class Job extends GenericAuditFields {
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "plan_attempt")
+    private int planAttempt = 1;
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "plan_attempt_started")
+    private java.util.Date planAttemptStarted;
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "retry_requested")
+    private boolean retryRequested;
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "retry_dispatch_state")
+    private String retryDispatchState;
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "retry_message")
+    private String retryMessage;
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "github_retry_attempt")
+    private Integer githubRetryAttempt;
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "github_run_id")
+    private Long githubRunId;
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "github_job_id")
+    private Long githubJobId;
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "github_repository")
+    private String githubRepository;
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "github_phase")
+    private String githubPhase;
+
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    @Column(name = "github_stack")
+    private String githubStack;
+
+    // Request-only executor fence; the server owns planAttempt.
+    @jakarta.persistence.Transient
+    @CreatePermission(expression = "user is a super service")
+    @UpdatePermission(expression = "user is a super service")
+    private Integer executionAttempt;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

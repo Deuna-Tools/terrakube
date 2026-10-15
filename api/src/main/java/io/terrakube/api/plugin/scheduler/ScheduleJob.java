@@ -195,7 +195,8 @@ public class ScheduleJob implements org.quartz.Job {
 
     private boolean doRunExecution(Job job) {
         int jobId = job.getId();
-        Date jobExpiration = DateUtils.addHours(job.getCreatedDate(), 6);
+        Date jobExpiration = DateUtils.addHours(job.getPlanAttemptStarted() != null
+                ? job.getPlanAttemptStarted() : job.getCreatedDate(), 6);
         Date currentTime = new Date(System.currentTimeMillis());
         log.info("Job {} should be completed before {}, current time {}", job.getId(), jobExpiration, currentTime);
         if (currentTime.after(jobExpiration)) {

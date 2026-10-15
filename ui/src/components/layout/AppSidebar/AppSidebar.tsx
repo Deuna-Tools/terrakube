@@ -40,6 +40,7 @@ import { HelpMenu } from "@/components/layout/HelpMenu";
 import { UserMenu } from "@/components/layout/UserMenu";
 import { getStoredSidebarCollapsed, setStoredSidebarCollapsed } from "./sidebarPreference";
 import logo from "@/domain/Home/white_logo.png";
+import { withBasePath } from "@/config/basePath";
 import "./AppSidebar.css";
 
 const { Sider } = Layout;
@@ -415,7 +416,7 @@ export default function AppSidebar({
       <div className="app-sidebar-inner">
         <div className={`app-sidebar-header ${effectiveCollapsed ? "app-sidebar-header--collapsed" : ""}`}>
           <Link to="/" className="app-sidebar-home-link">
-            <img src={logo} alt="Terrakube" className="app-sidebar-logo" />
+            <img src={withBasePath(logo)} alt="Terrakube" className="app-sidebar-logo" />
           </Link>
           <div className="app-sidebar-header-actions">
             {!effectiveCollapsed && (

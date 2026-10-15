@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+    <changeSet id="plan-retry-attempts" author="deuna">
+        <addColumn tableName="job">
+            <column name="plan_attempt" type="int" defaultValueNumeric="1"><constraints nullable="false"/></column>
+            <column name="plan_attempt_started" type="timestamp"/>
+            <column name="retry_requested" type="boolean" defaultValueBoolean="false"><constraints nullable="false"/></column>
+            <column name="retry_dispatch_state" type="varchar(255)"/>
+            <column name="retry_message" type="varchar(255)"/>
+            <column name="github_retry_attempt" type="int"/>
+            <column name="github_run_id" type="bigint"/>
+            <column name="github_job_id" type="bigint"/>
+            <column name="github_repository" type="varchar(255)"/>
+            <column name="github_phase" type="varchar(255)"/>
+            <column name="github_stack" type="varchar(255)"/>
+        </addColumn>
+        <addColumn tableName="step"><column name="execution_attempt" type="int" defaultValueNumeric="1"><constraints nullable="false"/></column></addColumn>
+        <createTable tableName="plan_attempt">
+            <column name="id" type="uuid"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="job_id" type="int"><constraints nullable="false"/></column>
+            <column name="attempt" type="int"><constraints nullable="false"/></column>
+            <column name="status" type="varchar(255)"/>
+            <column name="finished_at" type="timestamp"/>
+            <column name="retried_by" type="varchar(255)"/>
+            <column name="context" type="text"/>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="plan_attempt" baseColumnNames="job_id" referencedTableName="job" referencedColumnNames="id" constraintName="plan_attempt_job_fk" onDelete="CASCADE"/>
+        <addUniqueConstraint tableName="plan_attempt" columnNames="job_id,attempt" constraintName="plan_attempt_unique"/>
+        <createIndex tableName="job" indexName="job_retry_requested_idx"><column name="retry_requested"/></createIndex>
+    </changeSet>
+</databaseChangeLog>

@@ -47,6 +47,17 @@ describe("AppSidebar", () => {
     sessionStorage.clear();
   });
 
+  it("keeps the bundled logo under the portal base path on a nested route", async () => {
+    const original = window._env_.REACT_APP_BASE_PATH;
+    window._env_.REACT_APP_BASE_PATH = "/terrakube/";
+    try {
+      renderSidebar(`${workspacePath}/runs/7087`);
+      expect(await screen.findByAltText("Terrakube")).toHaveAttribute("src", "/terrakube/test-file-stub");
+    } finally {
+      window._env_.REACT_APP_BASE_PATH = original;
+    }
+  });
+
   it("shows a single Organizations item when there is no organization in the URL", async () => {
     renderSidebar("/organizations");
 
