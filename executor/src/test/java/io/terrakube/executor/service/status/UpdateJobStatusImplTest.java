@@ -174,6 +174,23 @@ public class UpdateJobStatusImplTest {
     }
 
     @Test
+    public void retriedPlanWithChangesIgnoresArchivedSteps() {
+        Job job = stubJobWithStatus("queue", 2);
+        TerraformJob retry = terraformJob();
+        retry.setExecutionAttempt(2);
+        retry.setCurrentStepCount(1);
+        doReturn("output-url").when(terraformState).saveOutput(anyString(), anyString(), anyString(), anyString(), anyString());
+
+        subject().setCompletedStatus(true, true, 2, retry, "plan output", "", "plan-file", "commit-1");
+
+        Assertions.assertEquals("completed", job.getAttributes().getStatus());
+        ArgumentCaptor<JobRequest> update = ArgumentCaptor.forClass(JobRequest.class);
+        verify(terrakubeClient).updateJob(update.capture(), anyString(), anyString());
+        Assertions.assertEquals(2, ((UpdateJobStatusImpl.AttemptAttributes)
+                update.getValue().getData().getAttributes()).getExecutionAttempt());
+    }
+
+    @Test
     public void planWithChangesAndFurtherSteps_marksJobPending() {
         // A "Plan and Apply" template has two steps. A plan finding changes should
         // still wait "pending" for the apply step that follows it.

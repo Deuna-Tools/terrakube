@@ -13,7 +13,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PlanRetryController {
     private final PlanRetryService retries;
-    public record Request(int expectedAttempt, long githubRunId) {}
+    public record PlanRequest(int expectedAttempt) {}
+    public record ActivationRequest(int expectedAttempt, long githubRunId) {}
 
     @GetMapping
     public Map<String, Object> describe(@PathVariable int jobId, Authentication authentication) {
@@ -22,13 +23,13 @@ public class PlanRetryController {
 
     @PostMapping("/plan")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public void retry(@PathVariable int jobId, @RequestBody Request request, Authentication authentication) {
+    public void retry(@PathVariable int jobId, @RequestBody PlanRequest request, Authentication authentication) {
         retries.request(jobId, request.expectedAttempt(), new User((Principal) authentication));
     }
 
     @PostMapping("/activate")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public void activate(@PathVariable int jobId, @RequestBody Request request, Authentication authentication) {
+    public void activate(@PathVariable int jobId, @RequestBody ActivationRequest request, Authentication authentication) {
         retries.activate(jobId, request.expectedAttempt(), new User((Principal) authentication), request.githubRunId());
     }
 

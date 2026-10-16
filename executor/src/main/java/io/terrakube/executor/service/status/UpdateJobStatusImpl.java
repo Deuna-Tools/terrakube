@@ -71,7 +71,7 @@ public class UpdateJobStatusImpl implements UpdateJobStatus {
             if (rejected || currentJobStatus.equals("cancelled"))
                 log.warn("Job {} was {} when running executor, skipping job status update", terraformJob.getJobId(), currentJobStatus);
             else
-                updateJobStatus(successful, isPlan, exitCode, terraformJob.getOrganizationId(), terraformJob.getJobId(), terraformJob.getStepId(), jobOutput, jobErrorOutput, jobPlan, commitId, terraformJob.getExecutionAttempt());
+                updateJobStatus(successful, isPlan, exitCode, terraformJob.getOrganizationId(), terraformJob.getJobId(), terraformJob.getStepId(), jobOutput, jobErrorOutput, jobPlan, commitId, terraformJob.getExecutionAttempt(), terraformJob.getCurrentStepCount());
         }
     }
 
@@ -80,7 +80,7 @@ public class UpdateJobStatusImpl implements UpdateJobStatus {
                 .getData().getAttributes().getStatus();
     }
 
-    private void updateJobStatus(boolean successful, boolean isPlan, int exitCode, String organizationId, String jobId, String stepId, String jobOutput, String jobErrorOutput, String jobPlan, String commitId, int attempt) {
+    private void updateJobStatus(boolean successful, boolean isPlan, int exitCode, String organizationId, String jobId, String stepId, String jobOutput, String jobErrorOutput, String jobPlan, String commitId, int attempt, Integer currentStepCount) {
         Job job = terrakubeClient.getJobById(organizationId, jobId).getData();
         String status = "";
         boolean planChanges = true;
@@ -102,7 +102,10 @@ public class UpdateJobStatusImpl implements UpdateJobStatus {
                         // step. But if this plan is the job's only step (a plan-only template),
                         // there's nothing left to run it against - leaving it "pending" forever
                         // misreports a finished job as still in progress.
-                        status = job.getRelationships().getStep().getData().size() > 1 ? "pending" : "completed";
+                        // Archived attempts remain in the JSON:API relationship.
+                        int stepCount = currentStepCount != null ? currentStepCount
+                                : job.getRelationships().getStep().getData().size();
+                        status = stepCount > 1 ? "pending" : "completed";
                         break;
                 }
             }
