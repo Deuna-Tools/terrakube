@@ -288,6 +288,8 @@ jobs:
       - name: Login to DEUNA Operations ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
+      - name: Install the OCI image copier
+        run: sudo apt-get update -qq && sudo apt-get install -y skopeo
       - name: Copy the released image to its Terrakube ECR repository
         env:
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -295,16 +297,14 @@ jobs:
           set -euo pipefail
           SOURCE="ghcr.io/deuna-tools/${IMAGE}:${VERSION}"
           TARGET="${ECR_REGISTRY}/${IMAGE}-ops:${VERSION}"
-          docker pull --platform linux/amd64 "${SOURCE}"
-          SOURCE_DIGEST="$(docker image inspect "${SOURCE}" --format '{{index .RepoDigests 0}}')"
+          SOURCE_DIGEST="sha256:$(skopeo inspect --raw --authfile "${HOME}/.docker/config.json" "docker://${SOURCE}" | sha256sum | cut -d ' ' -f1)"
           EXISTING_DIGEST="$(aws ecr batch-get-image --repository-name "${IMAGE}-ops" --image-ids "imageTag=${VERSION}" --query 'images[0].imageId.imageDigest' --output text)"
           if [ "${EXISTING_DIGEST}" != "None" ] && [ -n "${EXISTING_DIGEST}" ]; then
-            test "${EXISTING_DIGEST}" = "${SOURCE_DIGEST##*@}"
+            test "${EXISTING_DIGEST}" = "${SOURCE_DIGEST}"
             echo "The immutable ECR release already matches GHCR."
           else
-            docker tag "${SOURCE}" "${TARGET}"
-            docker push "${TARGET}"
+            skopeo copy --all --preserve-digests --authfile "${HOME}/.docker/config.json" "docker://${SOURCE}" "docker://${TARGET}"
           fi
           TARGET_DIGEST="$(aws ecr batch-get-image --repository-name "${IMAGE}-ops" --image-ids "imageTag=${VERSION}" --query 'images[0].imageId.imageDigest' --output text)"
-          test "${TARGET_DIGEST}" = "${SOURCE_DIGEST##*@}"
+          test "${TARGET_DIGEST}" = "${SOURCE_DIGEST}"
           echo "Published ${TARGET}@${TARGET_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
