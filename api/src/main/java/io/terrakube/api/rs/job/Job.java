@@ -103,6 +103,7 @@ public class Job extends GenericAuditFields {
 
     // Request-only executor fence; the server owns planAttempt.
     @jakarta.persistence.Transient
+    @com.yahoo.elide.annotation.ComputedAttribute
     @CreatePermission(expression = "user is a super service")
     @UpdatePermission(expression = "user is a super service")
     private Integer executionAttempt;

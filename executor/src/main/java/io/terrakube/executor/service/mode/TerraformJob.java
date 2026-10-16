@@ -20,6 +20,7 @@ public class TerraformJob {
     private String workspaceId;
     private String jobId;
     private int executionAttempt = 1;
+    private Integer currentStepCount;
     private String stepId;
     private String terraformVersion;
     private String source;

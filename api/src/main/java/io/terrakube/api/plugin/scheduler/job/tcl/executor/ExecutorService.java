@@ -82,6 +82,8 @@ public class ExecutorService {
     @Autowired
     JobRepository jobRepository;
     @Autowired
+    private io.terrakube.api.repository.StepRepository stepRepository;
+    @Autowired
     private VariableRepository variableRepository;
     @Autowired
     private ReferenceRepository referenceRepository;
@@ -96,6 +98,7 @@ public class ExecutorService {
         executorContext.setWorkspaceId(job.getWorkspace().getId().toString());
         executorContext.setJobId(String.valueOf(job.getId()));
         executorContext.setExecutionAttempt(job.getPlanAttempt());
+        executorContext.setCurrentStepCount(stepRepository.findByJobId(job.getId()).size());
         executorContext.setStepId(stepId);
 
         if (job.getWorkspace().getBranch().equals("remote-content")) {

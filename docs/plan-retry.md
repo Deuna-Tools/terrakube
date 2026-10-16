@@ -64,3 +64,17 @@ GHCR release workflow exposes this as `ui_base_path`. Sidebar and login logos
 also use the runtime base-path helper. The portal proxy must not prefix already
 prefixed asset URLs. The fork's CI verifies builds without using the upstream
 Sonar project; the inherited Docker Hub release workflow does not run in DEUNA.
+
+## DEUNA ECR distribution
+
+The manual release workflow also accepts `publish_to_ecr=true` with an existing
+release version. It copies only the Terrakube API, executor, and UI to private
+Operations ECR repositories ending in `-ops`, verifies their image digests,
+and never rebuilds or republishes the source GHCR release in this mode.
+
+GitHub Actions uses its short-lived repository token to read its own packages
+and the existing `RoleForGithubPushECRAllService` OIDC role to push ECR images.
+The cluster uses AWS IAM to pull those copies. No change to a shared personal
+access token, Jarvis deployment, IAM trust policy, or registry visibility is
+needed. Provision the three ECR repositories through the control-plane stack
+before dispatching this mode.

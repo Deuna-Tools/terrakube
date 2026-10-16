@@ -22,6 +22,7 @@ public class ExecutorContext {
     private String jobId;
     @Builder.Default
     private int executionAttempt = 1;
+    private Integer currentStepCount;
     private String stepId;
     private String terraformVersion;
     private String source;

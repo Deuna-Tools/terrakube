@@ -1,4 +1,4 @@
-name: Manual Release to GHCR
+name: Manual Terrakube Release
 
 on:
   workflow_dispatch:
@@ -16,6 +16,11 @@ on:
           - patch
           - minor
           - major
+      publish_to_ecr:
+        description: "Copy an existing Terrakube release to DEUNA Operations ECR"
+        required: true
+        default: false
+        type: boolean
       ui_base_path:
         description: "Absolute UI base path (DEUNA portal uses /terrakube/)"
         required: true
@@ -95,6 +100,7 @@ jobs:
           echo "version=${NEXT_VERSION}" >> "${GITHUB_OUTPUT}"
 
   build-and-push-images:
+    if: ${{ !inputs.publish_to_ecr }}
     needs: prepare-release
     runs-on: ubuntu-latest
     permissions:
@@ -204,6 +210,7 @@ jobs:
           docker push ${REGISTRY}/${OWNER_LC}/${{ matrix.image_name }}:latest
 
   create-release:
+    if: ${{ !inputs.publish_to_ecr }}
     needs:
       - prepare-release
       - build-and-push-images
@@ -245,3 +252,59 @@ jobs:
               --title "${RELEASE_TITLE:-${TAG}}" \
               --notes-file "${NOTES_FILE}"
           fi
+
+  publish-ecr:
+    if: ${{ inputs.publish_to_ecr }}
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [terrakube-api-server, terrakube-executor, terrakube-ui]
+    env:
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+      IMAGE: ${{ matrix.image }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify source release
+        run: gh release view "v${VERSION}" --repo "${GITHUB_REPOSITORY}"
+      - name: Authenticate to the repository's GHCR packages
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Assume the existing DEUNA ECR publishing role
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: arn:aws:iam::023726431494:role/RoleForGithubPushECRAllService
+          role-session-name: terrakube-ecr-release
+          aws-region: us-east-2
+          allowed-account-ids: '023726431494'
+      - name: Login to DEUNA Operations ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
+      - name: Install the OCI image copier
+        run: sudo apt-get update -qq && sudo apt-get install -y skopeo
+      - name: Copy the released image to its Terrakube ECR repository
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          SOURCE="ghcr.io/deuna-tools/${IMAGE}:${VERSION}"
+          TARGET="${ECR_REGISTRY}/${IMAGE}-ops:${VERSION}"
+          SOURCE_DIGEST="sha256:$(skopeo inspect --raw --authfile "${HOME}/.docker/config.json" "docker://${SOURCE}" | sha256sum | cut -d ' ' -f1)"
+          EXISTING_DIGEST="$(aws ecr batch-get-image --repository-name "${IMAGE}-ops" --image-ids "imageTag=${VERSION}" --query 'images[0].imageId.imageDigest' --output text)"
+          if [ "${EXISTING_DIGEST}" != "None" ] && [ -n "${EXISTING_DIGEST}" ]; then
+            test "${EXISTING_DIGEST}" = "${SOURCE_DIGEST}"
+            echo "The immutable ECR release already matches GHCR."
+          else
+            skopeo copy --all --preserve-digests --authfile "${HOME}/.docker/config.json" "docker://${SOURCE}" "docker://${TARGET}"
+          fi
+          TARGET_DIGEST="$(aws ecr batch-get-image --repository-name "${IMAGE}-ops" --image-ids "imageTag=${VERSION}" --query 'images[0].imageId.imageDigest' --output text)"
+          test "${TARGET_DIGEST}" = "${SOURCE_DIGEST}"
+          echo "Published ${TARGET}@${TARGET_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
