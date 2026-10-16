@@ -31,6 +31,35 @@ import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
 class JobTests extends ServerApplicationTests {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    io.terrakube.api.repository.StepRepository retryStepRepository;
+    @org.springframework.beans.factory.annotation.Autowired
+    io.terrakube.api.repository.PlanAttemptRepository retryAttemptRepository;
+
+    @Test
+    void schedulerQueriesOnlyTheCurrentPlanAttempt() {
+        Job job = new Job(); job.setWorkspace(workspace); job.setOrganization(organization);
+        job.setPlanAttempt(2); job.setStatus(JobStatus.failed);
+        job = jobRepository.save(job);
+        io.terrakube.api.rs.job.step.Step previous = new io.terrakube.api.rs.job.step.Step();
+        previous.setJob(job); previous.setStepNumber(100); previous.setName("Plan");
+        previous.setExecutionAttempt(1); previous.setStatus(JobStatus.failed);
+        io.terrakube.api.rs.job.step.Step current = new io.terrakube.api.rs.job.step.Step();
+        current.setJob(job); current.setStepNumber(100); current.setName("Plan");
+        current.setExecutionAttempt(2); current.setStatus(JobStatus.pending);
+        retryStepRepository.saveAll(java.util.List.of(previous, current));
+        org.junit.jupiter.api.Assertions.assertEquals(1, retryStepRepository.findByJobId(job.getId()).size());
+        org.junit.jupiter.api.Assertions.assertEquals(2,
+                retryStepRepository.findByJobId(job.getId()).getFirst().getExecutionAttempt());
+        org.junit.jupiter.api.Assertions.assertEquals(2, retryStepRepository.findAllAttemptsByJobId(job.getId()).size());
+        io.terrakube.api.plugin.retry.PlanAttempt archive = new io.terrakube.api.plugin.retry.PlanAttempt();
+        archive.setJob(job); archive.setAttempt(1); archive.setStatus("failed");
+        archive.setFinishedAt(new Date()); archive.setRetriedBy("operator@example.test"); archive.setContext("{}");
+        retryAttemptRepository.saveAndFlush(archive);
+        org.junit.jupiter.api.Assertions.assertEquals("{}",
+                retryAttemptRepository.findByJobIdOrderByAttemptDesc(job.getId()).getFirst().getContext());
+    }
+
     Workspace workspace;
     Organization organization;
 

@@ -75,6 +75,7 @@ public class TclService {
             flowConfig.getFlow().stream().forEach(flow -> {
                 log.info("Creating step: {}", flow.toString());
                 Step newStep = new Step();
+                newStep.setExecutionAttempt(job.getPlanAttempt());
                 newStep.setStatus(JobStatus.pending);
                 newStep.setStepNumber(flow.getStep());
                 if (flow.getName() != null) {

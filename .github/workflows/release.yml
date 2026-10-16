@@ -8,6 +8,7 @@ permissions: {}
 
 jobs:
   build:
+    if: github.repository_owner == 'terrakube-io'
     permissions:
       contents: read
     strategy:
@@ -109,6 +110,7 @@ jobs:
         docker push azbuilder/open-registry:${{ env.VERSION }}
 
   merge:
+    if: github.repository_owner == 'terrakube-io'
     needs: build
     runs-on: ubuntu-latest
     env:

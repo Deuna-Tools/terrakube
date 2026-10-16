@@ -16,6 +16,11 @@ on:
           - patch
           - minor
           - major
+      ui_base_path:
+        description: "Absolute UI base path (DEUNA portal uses /terrakube/)"
+        required: true
+        default: /terrakube/
+        type: string
 
 permissions:
   contents: read
@@ -142,9 +147,12 @@ jobs:
       - name: Build and push UI image
         if: matrix.type == 'ui'
         working-directory: ./ui
+        env:
+          UI_BASE_PATH: ${{ inputs.ui_base_path }}
         run: |
           docker build \
             --build-arg REACT_APP_TERRAKUBE_VERSION=v${VERSION} \
+            --build-arg VITE_BASE="${UI_BASE_PATH}" \
             -t ${REGISTRY}/${OWNER_LC}/${{ matrix.image_name }}:${VERSION} \
             -t ${REGISTRY}/${OWNER_LC}/${{ matrix.image_name }}:latest \
             --push .

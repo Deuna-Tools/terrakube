@@ -20,6 +20,11 @@ import java.util.UUID;
 @Entity(name = "step")
 public class Step {
 
+    @com.yahoo.elide.annotation.CreatePermission(expression = "user is a super service")
+    @com.yahoo.elide.annotation.UpdatePermission(expression = "user is a super service")
+    @Column(name = "execution_attempt")
+    private int executionAttempt = 1;
+
     @Id
     @JdbcTypeCode(Types.VARCHAR)
     @GeneratedValue(strategy = GenerationType.UUID)

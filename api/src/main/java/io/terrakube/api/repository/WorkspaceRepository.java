@@ -12,6 +12,10 @@ import java.util.UUID;
 
 public interface WorkspaceRepository extends JpaRepository<Workspace, UUID> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select w from workspace w where w.id = :id")
+    Workspace lockForPlanRetry(@Param("id") UUID id);
+
     Workspace getByOrganizationNameAndName(String organizationName, String workspaceName);
 
     // The "(organization_id, name)" unique constraint is DEFERRABLE INITIALLY DEFERRED, so

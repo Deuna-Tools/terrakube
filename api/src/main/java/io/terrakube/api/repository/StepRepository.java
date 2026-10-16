@@ -9,7 +9,13 @@ import java.util.UUID;
 
 public interface StepRepository extends JpaRepository<Step, UUID> {
 
-    List<Step> findByJobId(int jobId);
+    @org.springframework.data.jpa.repository.Query("select s from step s where s.job.id = :jobId and s.executionAttempt = s.job.planAttempt")
+    List<Step> findByJobId(@org.springframework.data.repository.query.Param("jobId") int jobId);
 
-    Optional<Step> findFirstByJobIdOrderByStepNumber(int jobId);
+    @org.springframework.data.jpa.repository.Query("select s from step s where s.job.id = :jobId order by s.executionAttempt, s.stepNumber")
+    List<Step> findAllAttemptsByJobId(@org.springframework.data.repository.query.Param("jobId") int jobId);
+
+    default Optional<Step> findFirstByJobIdOrderByStepNumber(int jobId) {
+        return findByJobId(jobId).stream().min(java.util.Comparator.comparingInt(Step::getStepNumber));
+    }
 }

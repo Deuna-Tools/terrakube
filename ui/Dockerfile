@@ -14,6 +14,8 @@ COPY . .
 
 # Increase Node.js memory limit to prevent out of memory errors
 ENV NODE_OPTIONS="--max-old-space-size=4096"
+ARG VITE_BASE=/
+ENV VITE_BASE=${VITE_BASE}
 
 RUN yarn build
 
