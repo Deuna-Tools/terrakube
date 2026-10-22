@@ -70,4 +70,23 @@ class DownloadReleasesServiceTest {
                     "unexpected User-Agent: " + userAgents.get(0));
         }
     }
+
+    @Test
+    void downloadsMustNotAppendToHeadersInheritedFromTheSharedBuilder() {
+        WebClient.Builder builder = WebClient.builder()
+                .defaultHeaders(headers -> headers.add("User-Agent", "registry-client"));
+        DownloadReleasesService service = new DownloadReleasesService(builder);
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/releases";
+
+        for (int i = 0; i < 5; i++) {
+            service.downloadReleasesToFile(url, new File(tempDir.toFile(), "inherited-" + i + ".json"));
+        }
+
+        for (List<String> userAgents : receivedUserAgents) {
+            assertEquals(List.of("releases-downloader"), userAgents);
+        }
+        builder.build().get().uri(url).retrieve().toBodilessEntity().block();
+        assertEquals(List.of("registry-client"), receivedUserAgents.get(5));
+    }
+
 }
