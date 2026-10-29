@@ -86,7 +86,8 @@ class RequireSavedPlanTest {
         executorMode.setCategory(Category.ENV);
         executorMode.setKey("TERRAKUBE_ENABLE_EPHEMERAL_EXECUTOR");
         executorMode.setValue(ephemeral ? "1" : "0");
-        when(variableRepository.findByWorkspace(workspace)).thenReturn(Optional.of(List.of(executorMode)));
+        when(variableRepository.findByWorkspace(workspace))
+                .thenReturn(Optional.of(ephemeral ? List.of(executorMode) : List.of()));
 
         for (var flow : config.getFlow()) {
             executorService.execute(job, String.valueOf(flow.getStep()), flow);
