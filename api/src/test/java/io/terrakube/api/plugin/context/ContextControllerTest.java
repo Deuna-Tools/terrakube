@@ -323,7 +323,8 @@ class ContextControllerTest {
 
         assertEquals(HttpStatus.OK, read.getStatusCode());
         assertTrue(read.getBody().contains("\"planStructuredOutput\""));
-        verify(storageTypeService, never()).getContext(1);
+        // The write reads storage once under the lock; the following GET uses the refreshed cache.
+        verify(storageTypeService, Mockito.times(1)).getContext(1);
     }
 
     @Test

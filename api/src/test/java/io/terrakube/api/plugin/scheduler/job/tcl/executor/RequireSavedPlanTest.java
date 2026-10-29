@@ -47,6 +47,8 @@ class RequireSavedPlanTest {
     @Mock
     private AddressRepository addressRepository;
     @Mock
+    private io.terrakube.api.repository.StepRepository stepRepository;
+    @Mock
     private PersistentExecutorService persistentExecutorService;
     @Mock
     private EphemeralExecutorService ephemeralExecutorService;
