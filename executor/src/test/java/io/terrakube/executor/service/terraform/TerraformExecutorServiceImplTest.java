@@ -14,12 +14,16 @@ import io.terrakube.terraform.TerraformClient;
 import io.terrakube.terraform.TerraformProcessData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StreamOperations;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -634,4 +638,91 @@ class TerraformExecutorServiceImplTest {
         assertTrue(result.getOutputLog().contains("The Terraform/OpenTofu diagnostic above is the primary error."));
         assertEquals(1.0, meterRegistry.get("terrakube.executor.process.stream.drain.timeouts").counter().count());
     }
+    private void stubSuccessfulApply() throws Exception {
+        when(applyStructuredOutputService.seedFromPlan("org", "42")).thenReturn(List.of());
+        when(terraformClient.init(any(TerraformProcessData.class), any(Consumer.class), any()))
+                .thenReturn(CompletableFuture.completedFuture(true));
+        when(terraformClient.apply(any(TerraformProcessData.class), any(Consumer.class), any()))
+                .thenReturn(CompletableFuture.completedFuture(true));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "false, missing",
+            "false, nonempty",
+            "true, missing",
+            "true, empty",
+            "true, directory"
+    })
+    void requiredSavedPlanStopsApplyWhenArtifactIsUnavailable(boolean downloaded, String artifact) throws Exception {
+        TerraformExecutorServiceImpl subject = subject();
+        TerraformJob job = createJob();
+        job.setRequireSavedPlan(true);
+        job.setIgnoreError(true);
+        job.getVariables().put("message", "new-value");
+        Path savedPlan = tempDir.resolve("terraformLibrary.tfPlan");
+        switch (artifact) {
+            case "nonempty" -> Files.writeString(savedPlan, "left over from an earlier download");
+            case "empty" -> Files.createFile(savedPlan);
+            case "directory" -> Files.createDirectory(savedPlan);
+        }
+        when(terraformClient.init(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(true));
+        when(terraformState.downloadTerraformPlan("org", "workspace", "42", "1", tempDir.toFile()))
+                .thenReturn(downloaded);
+
+        ExecutorJobResult result = subject.apply(job, tempDir.toFile());
+
+        assertFalse(result.isSuccessfulExecution());
+        assertEquals(1, result.getExitCode());
+        assertTrue(result.getOutputLog().contains("requireSavedPlan is enabled"));
+        verify(terraformClient, never()).apply(any(), any(), any());
+        verify(terraformClient, never()).planDetailExitCode(any(), any(), any());
+        verify(terraformState, never()).saveStateJson(any(), anyString(), anyString());
+        verify(applyStructuredOutputService, never()).seedFromPlan(anyString(), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void requiredSavedPlanUsesSavedInputsAndDoesNotRetryFailedApply(boolean applySucceeds) throws Exception {
+        TerraformExecutorServiceImpl subject = subject();
+        TerraformJob job = createJob();
+        job.setRequireSavedPlan(true);
+        job.getVariables().put("message", "new-value");
+        Files.writeString(tempDir.resolve("terraformLibrary.tfPlan"), "downloaded plan");
+        stubSuccessfulApply();
+        when(terraformState.downloadTerraformPlan("org", "workspace", "42", "1", tempDir.toFile()))
+                .thenReturn(true);
+        when(terraformClient.apply(any(), any(), any()))
+                .thenReturn(CompletableFuture.completedFuture(applySucceeds));
+        when(terraformClient.show(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(true));
+        when(terraformClient.statePull(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(true));
+        when(terraformClient.output(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(true));
+
+        ExecutorJobResult result = subject.apply(job, tempDir.toFile());
+
+        assertEquals(applySucceeds, result.isSuccessfulExecution());
+        // An empty variables map makes terraform-client apply terraformLibrary.tfPlan.
+        verify(terraformClient).apply(argThat(data -> data.getTerraformVariables().isEmpty()), any(), any());
+        verify(terraformClient, never()).planDetailExitCode(any(), any(), any());
+        verify(terraformState).saveStateJson(eq(job), anyString(), anyString());
+        verify(terraformOutputsService).publishOutputs(eq("org"), eq("42"), eq("1"), anyString());
+    }
+
+    @Test
+    void optionalSavedPlanPreservesStandaloneApplyWithWorkspaceVariables() throws Exception {
+        TerraformExecutorServiceImpl subject = subject();
+        TerraformJob job = createJob();
+        job.getVariables().put("message", "current-value");
+        stubSuccessfulApply();
+        when(terraformState.downloadTerraformPlan("org", "workspace", "42", "1", tempDir.toFile()))
+                .thenReturn(false);
+        when(terraformClient.show(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(false));
+        when(terraformClient.statePull(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(false));
+
+        ExecutorJobResult result = subject.apply(job, tempDir.toFile());
+
+        assertTrue(result.isSuccessfulExecution());
+        verify(terraformClient).apply(argThat(data -> data.getTerraformVariables().equals(job.getVariables())), any(), any());
+    }
+
 }

@@ -78,6 +78,18 @@ public class ContextReadService {
      * @throws ContextUnavailableException on timeout, storage failure, or worker saturation
      *         (never negative-cached).
      */
+    public String readFresh(int jobId) {
+        CompletableFuture<String> future = startLoad(jobId);
+        try {
+            return future.get(properties.getReadTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ContextUnavailableException("Interrupted reading context for job " + jobId, e);
+        } catch (ExecutionException | TimeoutException e) {
+            throw new ContextUnavailableException("Unable to read context for job " + jobId, e);
+        }
+    }
+
     public String read(int jobId) {
         String cached = cache.getIfPresent(jobId);
         if (cached != null) {

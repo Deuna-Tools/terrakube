@@ -2,55 +2,44 @@ package io.terrakube.api.plugin.context;
 
 import com.fasterxml.jackson.core.JacksonException;
 import lombok.AllArgsConstructor;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.web.server.ResponseStatusException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-import io.terrakube.api.plugin.storage.StorageTypeService;
 import io.terrakube.api.plugin.streaming.StreamingService;
-import io.terrakube.api.repository.JobRepository;
-import io.terrakube.api.rs.job.Job;
-import io.terrakube.api.rs.job.JobStatus;
 
 import java.io.IOException;
-import java.util.EnumSet;
-import java.util.Optional;
-import java.util.Set;
+import java.security.Principal;
+import com.yahoo.elide.core.security.User;
+import io.terrakube.api.plugin.security.user.AuthenticatedUser;
 
 @Slf4j
 @RestController
 @RequestMapping("/context/v1")
 @AllArgsConstructor
 public class ContextController {
-    private static final Set<JobStatus> CONTEXT_WRITABLE_JOB_STATUSES = EnumSet.of(
-            JobStatus.pending,
-            JobStatus.waitingApproval,
-            JobStatus.approved,
-            JobStatus.queue,
-            JobStatus.running,
-            JobStatus.completed,
-            JobStatus.noChanges);
-
     private static final String PENDING_BODY = "{\"structuredOutputStatus\":{\"state\":\"PENDING\"}}";
-
-    private final StorageTypeService storageTypeService;
-
-    private final JobRepository jobRepository;
 
     private final ContextSanitizer contextSanitizer;
 
     private final StreamingService streamingService;
 
-    private final ContextStorageMetrics contextStorageMetrics;
-
     private final ContextReadService contextReadService;
 
     private final ContextProperties contextProperties;
+
+    private final ContextWriteService contextWriteService;
+
+    private final ObjectMapper objectMapper;
+
+    private final AuthenticatedUser authenticatedUser;
 
     @GetMapping(value = "/{jobId}", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getContext(@PathVariable("jobId") int jobId) {
@@ -83,42 +72,64 @@ public class ContextController {
     }
 
     @PostMapping(value = "/{jobId}", produces = MediaType.APPLICATION_JSON_VALUE)
-    @Transactional
     public ResponseEntity<String> saveContext(@PathVariable("jobId") int jobId, @RequestBody String context) {
-        String sanitizedContext;
+        ObjectNode incoming;
         try {
-            sanitizedContext = contextSanitizer.sanitize(context);
+            if (!(objectMapper.readTree(context) instanceof ObjectNode document)) {
+                log.warn("Context payload for job {} is not a JSON object", jobId);
+                return new ResponseEntity<>("{}", HttpStatus.BAD_REQUEST);
+            }
+            incoming = document;
         } catch (JacksonException e) {
             log.warn("Invalid context payload for job {}", jobId, e);
             return new ResponseEntity<>("{}", HttpStatus.BAD_REQUEST);
-        } catch (IOException e) {
-            log.warn("Controlled failure sanitizing context for job {}: {}", jobId, e.getMessage());
-            return new ResponseEntity<>("{}", HttpStatus.SERVICE_UNAVAILABLE);
         }
 
-        Optional<Job> jobOptional = jobRepository.findById(jobId);
-        if (jobOptional.isEmpty()) {
-            log.warn("Cannot save context for missing job {}", jobId);
-            return new ResponseEntity<>("{}", HttpStatus.NOT_FOUND);
-        }
-
-        Job job = jobOptional.get();
-        if (!CONTEXT_WRITABLE_JOB_STATUSES.contains(job.getStatus())) {
-            log.warn("Cannot save context for job {} with status {}", jobId, job.getStatus());
-            return new ResponseEntity<>("{}", HttpStatus.CONFLICT);
-        }
-
-        String savedContext;
+        ContextWriteService.ReplaceResult result;
         try {
-            String contextToSave = sanitizedContext;
-            savedContext = contextStorageMetrics.time("write", () -> storageTypeService.saveContext(jobId, contextToSave));
+            result = contextWriteService.replace(jobId, incoming);
+        } catch (ResponseStatusException e) {
+            return new ResponseEntity<>("{}", e.getStatusCode());
         } catch (IOException | RuntimeException e) {
+            // Includes a context write lock that could not be taken in time.
             log.warn("Controlled failure saving context for job {}: {}", jobId, e.getMessage());
-            return new ResponseEntity<>("{}", HttpStatus.SERVICE_UNAVAILABLE);
+            return unavailable();
         }
-        // Refresh the read cache so a Job Details page open right after the write sees this snapshot.
-        contextReadService.invalidate(jobId, savedContext);
-        return new ResponseEntity<>(savedContext, HttpStatus.OK);
+        return new ResponseEntity<>(result.saved(), HttpStatus.OK);
+    }
+
+    /**
+     * Sets individual context entries ({@code {"revision": n, "set": {path: value|null}}}). An entry
+     * older than or equal to the one stored is skipped, so a retried or reordered write is a no-op.
+     */
+    @PostMapping(value = "/{jobId}/patch", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> patchContext(@PathVariable("jobId") int jobId, @RequestBody String patch, Principal principal) {
+        if (principal == null) {
+            return new ResponseEntity<>("{}", HttpStatus.FORBIDDEN);
+        }
+        User user = new User(principal);
+        if (!authenticatedUser.isServiceAccountInternal(user) && !authenticatedUser.isSuperUser(user)) {
+            return new ResponseEntity<>("{}", HttpStatus.FORBIDDEN);
+        }
+        // Validated before the write lock is taken.
+        ContextPatchApplier.Patch parsed;
+        try {
+            parsed = ContextPatchApplier.parse(objectMapper.readTree(patch), System.currentTimeMillis());
+        } catch (JacksonException | InvalidContextPatchException e) {
+            log.warn("Invalid context patch for job {}", jobId);
+            return new ResponseEntity<>("{}", HttpStatus.BAD_REQUEST);
+        }
+
+        ContextWriteService.PatchResult result;
+        try {
+            result = contextWriteService.patch(jobId, parsed);
+        } catch (ResponseStatusException e) {
+            return new ResponseEntity<>("{}", e.getStatusCode());
+        } catch (IOException | RuntimeException e) {
+            log.warn("Controlled failure patching context for job {}: {}", jobId, e.getMessage());
+            return unavailable();
+        }
+        return new ResponseEntity<>("{\"applied\":" + result.applied().size() + ",\"skipped\":" + result.skipped() + "}", HttpStatus.OK);
     }
 
     @GetMapping(value = "/{jobId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
