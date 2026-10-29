@@ -11,10 +11,15 @@ import io.terrakube.api.rs.job.JobStatus;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.data.redis.connection.stream.RecordId;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.io.IOException;
+import io.terrakube.api.plugin.security.user.AuthenticatedUser;
+import java.security.Principal;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,6 +31,19 @@ import static org.mockito.Mockito.when;
 
 class ContextControllerTest {
 
+    private final AuthenticatedUser authenticatedUser = Mockito.mock(AuthenticatedUser.class);
+    private final Principal principal = Mockito.mock(Principal.class);
+
+    private ContextWriteService writeService(StorageTypeService storage, JobRepository jobs, ContextReadService reads,
+                                              ContextStorageMetrics metrics) {
+        RedisTemplate<String, Object> redis = Mockito.mock(RedisTemplate.class);
+        ValueOperations<String, Object> values = Mockito.mock(ValueOperations.class);
+        InMemoryContextWriteLock.stub(redis, values);
+        return new ContextWriteService(jobs, new ContextWriteLock(redis), reads,
+                new ContextSanitizer(new ObjectMapper()), storage, metrics, new ObjectMapper());
+    }
+
+
     private ContextController controller(StorageTypeService storageTypeService, JobRepository jobRepository) {
         return controller(storageTypeService, jobRepository, new SimpleMeterRegistry());
     }
@@ -34,8 +52,9 @@ class ContextControllerTest {
         ContextProperties properties = new ContextProperties();
         ContextStorageMetrics storageMetrics = new ContextStorageMetrics(meterRegistry);
         ContextReadService readService = new ContextReadService(storageTypeService, storageMetrics, properties, meterRegistry);
-        return new ContextController(storageTypeService, jobRepository, new ContextSanitizer(new ObjectMapper()),
-                Mockito.mock(StreamingService.class), storageMetrics, readService, properties);
+        return new ContextController(new ContextSanitizer(new ObjectMapper()),
+                Mockito.mock(StreamingService.class), readService, properties,
+                writeService(storageTypeService, jobRepository, readService, storageMetrics), new ObjectMapper(), authenticatedUser);
     }
 
     @Test
@@ -334,12 +353,50 @@ class ContextControllerTest {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         ContextProperties properties = new ContextProperties();
         ContextStorageMetrics storageMetrics = new ContextStorageMetrics(registry);
-        ContextController controller = new ContextController(storageTypeService, jobRepository,
-                new ContextSanitizer(new ObjectMapper()), streamingService, storageMetrics,
-                new ContextReadService(storageTypeService, storageMetrics, properties, registry), properties);
+        ContextController controller = new ContextController(
+                new ContextSanitizer(new ObjectMapper()), streamingService,
+                new ContextReadService(storageTypeService, storageMetrics, properties, registry), properties,
+                Mockito.mock(ContextWriteService.class), new ObjectMapper(), authenticatedUser);
 
         controller.streamContext("42", null);
 
         verify(streamingService).streamJobContextAsync(Mockito.eq("42"), Mockito.any(), Mockito.eq(RecordId.of("0-0")), Mockito.any());
+    }
+
+    @Test
+    void patchProtectsReviewProofFromLegacyFullWrites() throws Exception {
+        when(authenticatedUser.isSuperUser(Mockito.any())).thenReturn(true);
+        StorageTypeService storage = Mockito.mock(StorageTypeService.class);
+        JobRepository jobs = Mockito.mock(JobRepository.class);
+        Job job = Mockito.mock(Job.class);
+        when(job.getStatus()).thenReturn(JobStatus.waitingApproval);
+        when(jobs.findById(1)).thenReturn(Optional.of(job));
+        AtomicReference<String> stored = new AtomicReference<>("{\"planStructuredOutput\":{}}");
+        when(storage.getContext(1)).thenAnswer(i -> stored.get());
+        when(storage.saveContext(Mockito.eq(1), Mockito.anyString())).thenAnswer(i -> {
+            stored.set(i.getArgument(1));
+            return stored.get();
+        });
+        ContextController controller = controller(storage, jobs);
+
+        assertEquals(HttpStatus.OK, controller.patchContext(1,
+                "{\"revision\":2,\"set\":{\"athiaPlanReview\":{\"verdict\":\"PASS\"}}}", principal).getStatusCode());
+        assertEquals(HttpStatus.OK, controller.saveContext(1, "{\"terrakubeUI\":{}}").getStatusCode());
+        assertTrue(stored.get().contains("athiaPlanReview"));
+        assertTrue(stored.get().contains("terrakubeUI"));
+        assertEquals("{\"applied\":0,\"skipped\":1}", controller.patchContext(1,
+                "{\"revision\":1,\"set\":{\"athiaPlanReview\":null}}", principal).getBody());
+    }
+
+    @Test
+    void rejectsInvalidPatchAndUnauthorizedWriters() {
+        StorageTypeService storage = Mockito.mock(StorageTypeService.class);
+        ContextController controller = controller(storage, Mockito.mock(JobRepository.class));
+        assertEquals(HttpStatus.FORBIDDEN, controller.patchContext(1, "{}", null).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, controller.patchContext(1, "{}", principal).getStatusCode());
+        when(authenticatedUser.isSuperUser(Mockito.any())).thenReturn(true);
+        for (String body : new String[]{"null", "[]", "{}", "{"}) {
+            assertEquals(HttpStatus.BAD_REQUEST, controller.patchContext(1, body, principal).getStatusCode());
+        }
     }
 }
