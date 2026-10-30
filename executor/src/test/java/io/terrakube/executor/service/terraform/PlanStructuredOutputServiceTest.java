@@ -416,6 +416,37 @@ class PlanStructuredOutputServiceTest {
     }
 
     @Test
+    void enrichedSummaryDoesNotRestoreCachedProgressStatus() throws Exception {
+        TerraformClient terraformClient = Mockito.mock(TerraformClient.class);
+        Mockito.when(terraformClient.showPlanJson(Mockito.any(), Mockito.<Consumer<String>>any(), Mockito.<Consumer<String>>any()))
+                .thenAnswer(invocation -> {
+                    invocation.<Consumer<String>>getArgument(1).accept("{\"resource_changes\":[]}");
+                    return CompletableFuture.completedFuture(true);
+                });
+        JobContextService contextService = Mockito.mock(JobContextService.class);
+        Map<String, Object> cached = new HashMap<>(Map.of("structuredOutputStatus", Map.of(
+                "state", "PERSISTED", "stepId", "step-1", "phase", "plan", "finalSnapshot", false)));
+        Mockito.when(contextService.getCurrentContext("o", "1")).thenReturn(cached);
+        PlanStructuredOutputService service = new PlanStructuredOutputService(contextService, new ObjectMapper(), terraformClient);
+        TerraformJob job = new TerraformJob();
+        job.setOrganizationId("o");
+        job.setJobId("1");
+        job.setStepId("step-1");
+        job.setTerraformVersion("1.5.7");
+        job.setEnvironmentVariables(new HashMap<>());
+
+        service.publishPlanSummary(job, new File("/tmp"), List.of(), List.of());
+
+        ArgumentCaptor<Map<String, Object>> saved = ArgumentCaptor.forClass(Map.class);
+        Mockito.verify(contextService).saveContext(Mockito.eq("o"), Mockito.eq("1"), saved.capture());
+        Map<?, ?> status = (Map<?, ?>) saved.getValue().get("structuredOutputStatus");
+        assertEquals(true, status.get("finalSnapshot"));
+        assertEquals("PERSISTED", status.get("state"));
+        assertEquals("plan", status.get("phase"));
+        assertEquals("step-1", status.get("stepId"));
+    }
+
+    @Test
     void publishFinalPlanSnapshotStaysSynchronousWhenAsyncDisabled() {
         JobContextService jobContextService = Mockito.mock(JobContextService.class);
         Mockito.when(jobContextService.getCurrentContext("o", "1")).thenReturn(new HashMap<>());
