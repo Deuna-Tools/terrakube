@@ -7,7 +7,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockitoAnnotations;
+import org.quartz.JobBuilder;
+import org.quartz.JobExecutionContext;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 
 import graphql.AssertException;
 import io.terrakube.api.rs.Organization;
@@ -16,6 +20,7 @@ import io.terrakube.api.rs.job.JobStatus;
 import io.terrakube.api.rs.team.Team;
 import io.terrakube.api.rs.template.Template;
 import io.terrakube.api.rs.workspace.Workspace;
+import io.terrakube.api.plugin.scheduler.ScheduleJob;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -29,6 +34,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@TestPropertySource(properties = "io.terrakube.api.plugin.scheduler.instanceName=job-api-tests")
 class JobTests extends ServerApplicationTests {
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -64,7 +71,10 @@ class JobTests extends ServerApplicationTests {
     Organization organization;
 
     @BeforeAll
-    public void setupSuite() {
+    public void setupSuite() throws Exception {
+        scheduler.standby();
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10))
+                .until(() -> scheduler.getCurrentlyExecutingJobs().isEmpty());
         organization = organizationRepository.getReferenceById(UUID.fromString("d9b58bd3-f3fc-4056-a026-1163297e80a8"));
 
         stubFor(post(urlPathEqualTo("/api/v1/terraform-rs"))
@@ -169,12 +179,19 @@ class JobTests extends ServerApplicationTests {
     }
 
     private void awaitJobStatus(String jobId, JobStatus status, Duration timeout) {
+        JobExecutionContext context = org.mockito.Mockito.mock(JobExecutionContext.class);
+        doReturn(scheduler).when(context).getScheduler();
+        doReturn(JobBuilder.newJob(ScheduleJob.class)
+                .usingJobData(ScheduleJob.JOB_ID, Integer.parseInt(jobId)).build())
+                .when(context).getJobDetail();
         Instant deadline = Instant.now().plusMillis(timeout.toMillis());
         while(Instant.now().isBefore(deadline)) {
             Optional<Job> maybeJob = jobRepository.findById(Integer.parseInt(jobId));
             if(maybeJob.filter(job -> status.equals(job.getStatus())).isPresent()) {
                 return;
             }
+            // Drive transitions without Quartz workers racing Spring's mock resets.
+            org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> scheduleJob.execute(context));
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {}
