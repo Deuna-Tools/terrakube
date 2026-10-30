@@ -82,6 +82,13 @@ public class PlanStructuredOutputService {
             Map<String, Object> context = getCurrentContext(terraformJob.getOrganizationId(), terraformJob.getJobId());
             Map<String, Object> updatedContext = updateContext(context, terraformJob.getStepId(), changes, jobDiagnostics);
             applyNoChangePlanMarker(updatedContext, terraformJob.getStepId(), changes);
+            // The cached context can still contain an earlier progress snapshot.
+            updatedContext.put("structuredOutputStatus", Map.of(
+                    "state", "PERSISTED",
+                    "updatedAtEpochMs", System.currentTimeMillis(),
+                    "stepId", terraformJob.getStepId(),
+                    "phase", "plan",
+                    "finalSnapshot", true));
             saveContext(terraformJob.getOrganizationId(), terraformJob.getJobId(), updatedContext);
         } catch (InterruptedException e) {
             log.error("Interrupted while publishing plan summary", e);
