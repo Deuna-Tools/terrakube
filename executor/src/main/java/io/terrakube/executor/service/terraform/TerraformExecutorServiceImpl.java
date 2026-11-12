@@ -227,14 +227,20 @@ public class TerraformExecutorServiceImpl implements TerraformExecutor {
                                 null).get();
                     }
 
-                    // Unconditional final snapshot - the periodic flush above only fires when a json
-                    // line arrives more than APPLY_PROGRESS_FLUSH_INTERVAL_MS after the last one, so
-                    // a plan whose lines all land in a single burst (typical for small/fast plans)
-                    // would otherwise exit having enqueued nothing. Attempted even when the plan
-                    // failed, so a diagnostic (e.g. an unset required variable) is the last word on
-                    // this step rather than stale/empty progress data.
-                    planStructuredOutputService.publishFinalPlanSnapshot(
-                            terraformJob.getOrganizationId(), terraformJob.getJobId(), terraformJob.getStepId(), liveChanges, jobDiagnostics);
+                    // Successful stream entries still need show-json types and values. Keep them
+                    // as progress until publishPlanSummary writes the enriched final snapshot.
+                    // Failed plans retain a final snapshot so the UI can show their diagnostics.
+                    if (exitCode == 0 || exitCode == 2) {
+                        try {
+                            planStructuredOutputService.publishPlanProgress(
+                                    terraformJob.getOrganizationId(), terraformJob.getJobId(), terraformJob.getStepId(), liveChanges, jobDiagnostics);
+                        } catch (RuntimeException e) {
+                            log.warn("Unable to publish last plan progress for job {}", terraformJob.getJobId(), e);
+                        }
+                    } else {
+                        planStructuredOutputService.publishFinalPlanSnapshot(
+                                terraformJob.getOrganizationId(), terraformJob.getJobId(), terraformJob.getStepId(), liveChanges, jobDiagnostics);
+                    }
 
                     terraformJob.setLiveChanges(liveChanges);
                     terraformJob.setJobDiagnostics(jobDiagnostics);
