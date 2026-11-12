@@ -421,6 +421,24 @@ class TerraformExecutorServiceImplTest {
                 any());
     }
 
+    @Test
+    void successfulPlanWaitsForEnrichmentBeforePublishingFinalSnapshot() throws Exception {
+        TerraformExecutorServiceImpl subject = spy(subject());
+        TerraformJob job = createJob();
+        when(terraformClient.init(any(TerraformProcessData.class), any(Consumer.class), any()))
+                .thenReturn(CompletableFuture.completedFuture(true));
+        TerraformClient jsonClient = Mockito.mock(TerraformClient.class);
+        when(jsonClient.planDetailExitCode(any(TerraformProcessData.class), any(Consumer.class), any()))
+                .thenReturn(CompletableFuture.completedFuture(2));
+        doReturn(jsonClient).when(subject).buildJsonEnabledPlanClient();
+
+        subject.plan(job, tempDir.toFile(), false);
+
+        verify(planStructuredOutputService, Mockito.never()).publishFinalPlanSnapshot(
+                anyString(), anyString(), anyString(), any(), any());
+        verify(planStructuredOutputService).publishPlanSummary(eq(job), any(), any(), any());
+    }
+
     // Regression test for a real bug: a fast plan (all json lines emitted well within the 2s
     // progress-flush throttle) that then fails never got a single live structured-output push,
     // live or final - unlike apply's runJsonApply, plan() had no unconditional "flush once more"
